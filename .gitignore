@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-server/
+.env
+.env.*
+!.env.example
+.firebase/
+*.log
+.DS_Store
+env.yaml
+storage.cors.json
