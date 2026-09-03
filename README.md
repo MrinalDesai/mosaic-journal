@@ -221,3 +221,190 @@ gcloud storage buckets update gs://YOUR_BUCKET --cors-file=storage.cors.json
 ## Firebase Auth deployment note
 
 After Cloud Run gives you the final service URL, add that hostname under **Firebase Console -> Authentication -> Settings -> Authorized domains**. Otherwise Google Sign-In can fail on the deployed app even if it works on localhost.
+## Production notes
+
+These are decisions made while taking Mosaic from a working prototype to a
+deployed service. Each one changed the architecture, so they are recorded here
+rather than buried in commit messages.
+
+### Gemini access runs through Vertex AI, not the AI Studio endpoint
+
+Mosaic calls Gemini through Vertex AI (`aiplatform.googleapis.com`) using the
+Cloud Run runtime service account and Application Default Credentials, rather
+than through `generativelanguage.googleapis.com` with an API key.
+
+The immediate reason was a billing-state bug: every call to the AI Studio
+endpoint returned `429 RESOURCE_EXHAUSTED` with "your prepayment credits are
+depleted", on a project that AI Studio itself reported as free tier, with zero
+recorded usage. Regenerating the key did not help, and this is a widely reported
+backend synchronisation issue rather than a project misconfiguration.
+
+The better reason is that the resulting architecture is stronger. Vertex
+authenticates via the service account's IAM identity, so there is no long-lived
+API key in the request path at all — nothing to leak, rotate, or accidentally
+commit. Authorization is a `roles/aiplatform.user` binding that can be revoked
+centrally.
+
+The `GEMINI_API_KEY` secret remains provisioned in Secret Manager and bound to
+the service. It is the fallback path for local development, where ADC is not
+available, and the client selects between the two at startup:
+
+```ts
+function aiClient() {
+  if (process.env.GOOGLE_GENAI_USE_VERTEXAI === "true") {
+    return new GoogleGenAI({
+      vertexai: true,
+      project: process.env.GOOGLE_CLOUD_PROJECT,
+      location: process.env.GOOGLE_CLOUD_LOCATION ?? "global"
+    });
+  }
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+  return new GoogleGenAI({ apiKey });
+}
+```
+
+`GOOGLE_CLOUD_LOCATION=global` matters: regional Vertex endpoints do not carry
+every model, and `global` routes to wherever the requested model is served.
+
+### A security header broke authentication
+
+Google Sign-In failed in every browser with `auth/popup-closed-by-user`, after
+the user had completed Google's consent screen. The popup was not closed — it
+succeeded and then could not report back.
+
+The cause was Mosaic's own hardening. Helmet sets
+`Cross-Origin-Opener-Policy: same-origin` by default, which severs the
+`window.opener` reference between a page and any popup it spawns. That is
+correct behaviour as an anti-tab-nabbing measure, and Firebase's popup flow
+depends on exactly that reference to deliver the credential home. Firebase
+cannot distinguish "user closed the window" from "lost contact with the window",
+so it reports both identically.
+
+The fix narrows the policy rather than removing it:
+
+```ts
+app.use(helmet({
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  contentSecurityPolicy: { /* ... */ }
+}));
+```
+
+This keeps cross-origin isolation for everything Mosaic did not open itself.
+
+The general lesson is worth stating plainly, because it is the inverse of the
+failure mode this project set out to avoid: a security control applied without
+understanding which trust boundary it governs will break legitimate
+functionality. Mosaic shipped secure enough to lock out its own login.
+
+### Cloud Run sits behind a proxy
+
+`express-rate-limit` logged `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on every
+request. Cloud Run terminates TLS and forwards, so Express must be told to trust
+the proxy or the rate limiter cannot identify clients — meaning rate limiting
+was silently ineffective rather than merely noisy.
+
+```ts
+app.set("trust proxy", 1);
+```
+
+### Capture state survives a page reload
+
+A memory at `status: awaiting_clarification` holds its question on the Firestore
+document, not in React state. Any pending memory can therefore be completed
+later, from any session or device.
+
+This was found by reloading the page mid-capture: the clarifying question
+disappeared with the component state and the memory was unreachable, answerable
+only by deletion. Because the document already carried `clarifyingQuestion`, the
+fix was to render the answer affordance on the memory card itself rather than
+only in the composer. No schema change, no migration.
+
+### Environment configuration
+
+`--set-env-vars` uses commas as its delimiter, so a variable whose *value*
+contains commas — such as the model fallback ladder — is parsed as additional
+variable names. Configuration is therefore supplied as a file:
+
+```bash
+gcloud run deploy mosaic \
+  --source . \
+  --region asia-south1 \
+  --allow-unauthenticated \
+  --set-secrets GEMINI_API_KEY=GEMINI_API_KEY:latest \
+  --env-vars-file env.yaml
+```
+
+`env.yaml` is gitignored. It holds no credentials — Firebase web configuration
+is public by design and is served to the client from `/api/public-config` — but
+environment files do not belong in version control.
+
+Required keys:
+
+```yaml
+FIREBASE_API_KEY: "..."
+FIREBASE_AUTH_DOMAIN: "PROJECT_ID.firebaseapp.com"
+FIREBASE_PROJECT_ID: "PROJECT_ID"
+FIREBASE_STORAGE_BUCKET: "PROJECT_ID.firebasestorage.app"
+FIREBASE_APP_ID: "..."
+GOOGLE_GENAI_USE_VERTEXAI: "true"
+GOOGLE_CLOUD_PROJECT: "PROJECT_ID"
+GOOGLE_CLOUD_LOCATION: "global"
+GEMINI_MODELS: "gemini-2.5-flash,gemini-2.0-flash,gemini-2.5-flash-lite"
+```
+
+### Two setup steps that fail silently
+
+**Bucket CORS.** Artifacts are read client-side with the authenticated Storage
+SDK (`getBlob`), never from public object URLs. Without bucket CORS the fetch
+fails, the error is caught, and images simply never appear — no console error a
+casual reader would notice.
+
+```bash
+gcloud storage buckets update gs://YOUR_BUCKET --cors-file=storage.cors.json
+```
+
+**Authorized domains.** The Cloud Run hostname must be added under Firebase
+Authentication → Settings → Authorized domains, or Google Sign-In is rejected at
+the OAuth redirect.
+
+### Deployment prerequisites
+
+```bash
+gcloud services enable \
+  run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com \
+  firestore.googleapis.com storage.googleapis.com secretmanager.googleapis.com \
+  aiplatform.googleapis.com
+
+# Vertex access for the Cloud Run runtime service account
+gcloud projects add-iam-policy-binding PROJECT_ID \
+  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+
+# Secret Manager (fallback path / local development)
+gcloud secrets create GEMINI_API_KEY --replication-policy="automatic"
+echo -n "YOUR_KEY" | gcloud secrets versions add GEMINI_API_KEY --data-file=-
+gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
+  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+
+# Security rules for both isolation boundaries
+npx firebase-tools deploy --only firestore:rules,storage --project PROJECT_ID
+
+# Challenge verification label
+gcloud run services update mosaic \
+  --update-labels=dev-tutorial=cloud-run-ai-challenge \
+  --region=asia-south1
+```
+
+### Verified end to end
+
+- Google Sign-In, with the ID token verified server-side on every request
+- Typed text moment: analysis, clarifying question, grounded narrative
+- Image moment: multimodal OCR over a hotel receipt — guest name, both dates,
+  every line item, total and payment method extracted from the photograph
+- `inferredDate` filing a 2024 receipt under its own check-in date rather than
+  the capture date
+- Owner-bound thumbnail retrieval via the authenticated Storage SDK
+- Persistence across sign-out and sign-in
+- Capture state surviving a mid-flow page reload
