@@ -18,6 +18,7 @@ export function MemoryCard({
 }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
+  const [zoomed, setZoomed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +65,20 @@ export function MemoryCard({
 
   return (
     <article className="memory-card">
-      {imageUrl && <img src={imageUrl} alt="Journal artifact" className="memory-image" />}
+      {imageUrl && (
+        <img
+          src={imageUrl}
+          alt="Journal artifact"
+          className="memory-image"
+          onClick={() => setZoomed(true)}
+        />
+      )}
+      {zoomed && imageUrl && (
+        <div className="lightbox" onClick={() => setZoomed(false)} role="dialog" aria-modal="true">
+          <button className="lightbox-close" aria-label="Close">&times;</button>
+          <img src={imageUrl} alt="Journal artifact, full size" />
+        </div>
+      )}
       <div className="memory-body">
         <div className="memory-meta">
           <span>{dateText}</span>
