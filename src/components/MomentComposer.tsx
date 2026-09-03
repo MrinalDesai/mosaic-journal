@@ -10,7 +10,36 @@ export function MomentComposer({ user, onSaved }: { user: User; onSaved: () => P
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const speechSupported =
+    typeof window !== "undefined" &&
+    ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  const dictate = (target: "text" | "answer") => {
+    const Ctor =
+      (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+    if (!Ctor) return;
+    const recognition = new Ctor();
+    recognition.lang = "en-IN";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event: any) => {
+      const said = event.results?.[0]?.[0]?.transcript ?? "";
+      if (!said) return;
+      if (target === "text") {
+        setFile(null);
+        setText((prev) => (prev ? prev + " " + said : said));
+      } else {
+        setAnswer((prev) => (prev ? prev + " " + said : said));
+      }
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+    setListening(true);
+    recognition.start();
+  };
 
   const reset = () => {
     setText("");
@@ -31,7 +60,7 @@ export function MomentComposer({ user, onSaved }: { user: User; onSaved: () => P
       setMemoryId(result.memoryId);
       setQuestion(result.question);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not analyse this moment.");
+      setError(e instanceof Error ? e.message : "Could not read this item.");
     } finally {
       setBusy(false);
     }
@@ -46,7 +75,7 @@ export function MomentComposer({ user, onSaved }: { user: User; onSaved: () => P
       await onSaved();
       reset();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save this memory. Your answer has been kept here so you can retry.");
+      setError(e instanceof Error ? e.message : "Could not catalog this memory. Your answer has been kept here so you can retry.");
     } finally {
       setBusy(false);
     }
@@ -63,21 +92,35 @@ export function MomentComposer({ user, onSaved }: { user: User; onSaved: () => P
 
   if (question) {
     return (
-      <section className="composer clarifier">
-        <div className="eyebrow">One thing before this becomes a memory</div>
-        <h2>{question}</h2>
-        <textarea
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          placeholder="One sentence is enough…"
-          maxLength={600}
-        />
-        {error && <div className="error-banner">{error}</div>}
-        <div className="composer-actions">
-          <button className="secondary" onClick={reset} disabled={busy}>Cancel</button>
-          <button onClick={compose} disabled={busy || !answer.trim()}>
-            {busy ? "Saving…" : "Create memory"}
-          </button>
+      <section className="composer">
+        <div className="composer-head">
+          <h2>One more thing</h2>
+          <div className="intake-note">
+            <strong>Intake desk</strong>
+            The item has been read. A little context makes it findable later.
+          </div>
+        </div>
+        <div className="intake-bay">
+          <div className="eyebrow">Clarification</div>
+          <p className="pending-question">{question}</p>
+          <textarea
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            placeholder="One sentence is enough…"
+            maxLength={600}
+          />
+          {error && <div className="error-banner">{error}</div>}
+          <div className="composer-actions">
+            <button className="secondary" onClick={reset} disabled={busy}>Discard</button>
+            {speechSupported && (
+              <button className="secondary" onClick={() => dictate("answer")} disabled={busy || listening} type="button">
+                {listening ? "Listening…" : "Speak instead"}
+              </button>
+            )}
+            <button onClick={compose} disabled={busy || !answer.trim()}>
+              {busy ? "Cataloguing…" : "Catalog memory"}
+            </button>
+          </div>
         </div>
       </section>
     );
@@ -92,46 +135,66 @@ export function MomentComposer({ user, onSaved }: { user: User; onSaved: () => P
         if ((e.target as HTMLElement).dataset.pick === "true") fileInput.current?.click();
       }}
     >
-      <div className="eyebrow">Capture is one gesture</div>
-      <h1>Add a Moment</h1>
-      <p>Drop an image here, or write what you want to remember.</p>
-
-      {file ? (
-        <div className="selected-artifact">
-          <span>🖼️</span>
-          <div>
-            <strong>{file.name}</strong>
-            <small>{Math.round(file.size / 1024)} KB</small>
-          </div>
-          <button className="text-button" onClick={(e) => { e.stopPropagation(); setFile(null); }}>Remove</button>
+      <div className="composer-head">
+        <h1>Add a moment</h1>
+        <div className="intake-note">
+          <strong>Intake desk</strong>
+          New items are catalogued before they become part of your archive.
         </div>
-      ) : (
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="A thought, a fragment, something that happened…"
-          maxLength={4000}
+      </div>
+
+      <div className="intake-bay">
+        <div className="eyebrow">Drop an image here, or write what you want to remember</div>
+
+        {file ? (
+          <div className="selected-artifact">
+            <span>▣</span>
+            <div>
+              <strong>{file.name}</strong>
+              <small>{Math.round(file.size / 1024)} KB · awaiting intake</small>
+            </div>
+            <button className="text-button" onClick={(e) => { e.stopPropagation(); setFile(null); }}>
+              Remove
+            </button>
+          </div>
+        ) : (
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="A thought, a fragment, something that happened…"
+            maxLength={4000}
+          />
+        )}
+
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          hidden
+          onChange={(e) => {
+            const selected = e.target.files?.[0] ?? null;
+            if (selected) { setFile(selected); setText(""); }
+          }}
         />
-      )}
 
-      <input
-        ref={fileInput}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        hidden
-        onChange={(e) => {
-          const selected = e.target.files?.[0] ?? null;
-          if (selected) { setFile(selected); setText(""); }
-        }}
-      />
+        {error && <div className="error-banner">{error}</div>}
 
-      {error && <div className="error-banner">{error}</div>}
-
-      <div className="composer-actions">
-        <button className="secondary" data-pick="true" type="button">Choose image</button>
-        <button onClick={analyse} disabled={busy || (!file && !text.trim())}>
-          {busy ? "Understanding…" : "Turn into a memory"}
-        </button>
+        <div className="composer-actions">
+          <button className="secondary" data-pick="true" type="button">Choose image</button>
+          {speechSupported && (
+            <button
+              className="secondary"
+              onClick={(e) => { e.stopPropagation(); dictate("text"); }}
+              disabled={busy || listening}
+              type="button"
+            >
+              {listening ? "Listening…" : "Speak it"}
+            </button>
+          )}
+          <button onClick={analyse} disabled={busy || (!file && !text.trim())}>
+            {busy ? "Reading…" : "Turn into a memory"}
+          </button>
+        </div>
       </div>
     </section>
   );
