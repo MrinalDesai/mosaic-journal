@@ -29,7 +29,7 @@ const NarrativeSchema = z.object({ narrative: z.string().min(1).max(1200) });
 
 function modelLadder(): string[] {
   const configured = process.env.GEMINI_MODELS?.split(",").map((x) => x.trim()).filter(Boolean);
-  return configured?.length ? configured : ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3.7-flash"];
+  return configured?.length ? configured : ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"];
 }
 
 function recoverable(error: unknown): boolean {

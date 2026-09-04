@@ -26,9 +26,11 @@ in a sentence. A memory exists.
 
 ## What it does
 
-**Capture.** One drop zone accepts everything — drag an image, choose a file, speak, or
-type. There are deliberately no per-type buttons; the app detects what it received and
-routes on type.
+**Capture.** One intake bay handles the supported modalities — type, speak, drag an
+image, or choose one. There are deliberately no per-type buttons; the app detects what
+it received and routes it through the same pipeline. A type switch at the centre means
+PDF, uploaded audio and video can be added as cases rather than as separate journalling
+subsystems.
 
 **Artifact-to-memory.** Two separate Gemini calls. *Analyse* returns structured JSON:
 description, extracted text, entities, inferred date, tags, sentiment, life themes,
@@ -138,7 +140,8 @@ This is a deliberate strengthening of the pattern, not a substitute for it.
 
 ## Data model
 
-One collection, `schemaVersion: 2`:
+One primary memory collection at `schemaVersion: 2` (cluster metadata lives
+separately, see below):
 
 ```jsonc
 {
@@ -342,9 +345,10 @@ node cluster.mjs --uid=<UID> --run
 Two implementation notes. The embedding text leads with metadata and truncates the
 prose, because every memory is first-person journal writing in the same voice —
 unweighted narrative embeds *"this is a journal entry"* far more strongly than what the
-entry is about. And silhouette scores sit around 0.03, which is normal for text
-embeddings on a high-dimensional hypersphere where the metric compresses toward zero
-regardless of grouping quality; the cluster titles are the better evidence.
+entry is about. And silhouette is used as one heuristic for choosing k, not as a
+quality verdict — text embeddings sit on a high-dimensional hypersphere where the metric
+compresses toward zero, so scores around 0.03 are expected. Cluster coherence is checked
+qualitatively against representative members instead.
 
 ---
 
@@ -485,7 +489,7 @@ falls back to the API key path.
 
 ## Testing
 
-Walkthroughs rather than automated tests, per the project's stability directive.
+Final regression walkthrough, per the project's stability directive.
 
 **Auth** — signed-in user loads their memories; unauthenticated request rejected; a
 second account sees none of the first's memories.
