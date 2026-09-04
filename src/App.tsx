@@ -5,21 +5,31 @@ import { getAuthClient, googleProvider } from "./lib/firebase";
 import { deleteMemory, getMemories } from "./lib/api";
 import { MomentComposer } from "./components/MomentComposer";
 import { MemoryCard } from "./components/MemoryCard";
+import { PlacesView } from "./views/PlacesView";
+import { ArcView } from "./views/ArcView";
+import { ConstellationsView } from "./views/ConstellationsView";
+import { ArchiveFilter, type Period } from "./components/ArchiveFilter";
 import type { Memory } from "./types";
 import "./styles.css";
 
-const NAV = [
-  { label: "Archive", active: true },
-  { label: "Timeline", active: false },
-  { label: "Tags", active: false },
-  { label: "Locations", active: false }
-];
+type ViewId = "archive" | "places" | "arc" | "constellations";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<ViewId>("archive");
+  const [period, setPeriod] = useState<Period>({ year: null, month: null });
+
+  const visible = memories.filter((m) => {
+    if (period.year === null) return true;
+    const iso = m.memoryDate ?? m.createdAt ?? "";
+    const d = iso ? new Date(iso) : null;
+    if (!d || Number.isNaN(d.getTime())) return false;
+    if (d.getFullYear() !== period.year) return false;
+    return period.month === null || d.getMonth() === period.month;
+  });
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -94,16 +104,36 @@ export default function App() {
         </div>
 
         <nav className="nav-list">
-          {NAV.map((item) => (
-            <div
-              key={item.label}
-              className={`nav-item ${item.active ? "active" : "upcoming"}`}
-              aria-current={item.active ? "page" : undefined}
-            >
-              <span>{item.label}</span>
-              {item.active && <span className="nav-count">{memories.length}</span>}
-            </div>
-          ))}
+          <button
+            className={`nav-item ${view === "archive" ? "active" : ""}`}
+            onClick={() => setView("archive")}
+          >
+            <span>Archive</span>
+            <span className="nav-count">{memories.length}</span>
+          </button>
+          <button
+            className={`nav-item ${view === "places" ? "active" : ""}`}
+            onClick={() => setView("places")}
+          >
+            <span>Places</span>
+            <span className="nav-count">{memories.filter((m) => m.location).length}</span>
+          </button>
+          <button
+            className={`nav-item ${view === "arc" ? "active" : ""}`}
+            onClick={() => setView("arc")}
+          >
+            <span>Emotional arc</span>
+            <span className="nav-count">{memories.filter((m) => m.sentiment).length}</span>
+          </button>
+          <button
+            className={`nav-item ${view === "constellations" ? "active" : ""}`}
+            onClick={() => setView("constellations")}
+          >
+            <span>Constellations</span>
+            <span className="nav-count">
+              {new Set(memories.map((m) => m.clusterId).filter((c) => typeof c === "number")).size}
+            </span>
+          </button>
         </nav>
 
         <div className="sidebar-note">
@@ -150,21 +180,31 @@ export default function App() {
 
         {error && <div className="error-banner">{error}</div>}
 
+        {view === "places" ? (
+          <PlacesView memories={memories} />
+        ) : view === "arc" ? (
+          <ArcView memories={memories} />
+        ) : view === "constellations" ? (
+          <ConstellationsView user={user} memories={memories} />
+        ) : (
+        <>
         <MomentComposer user={user} onSaved={refresh} />
+
+        <ArchiveFilter memories={memories} period={period} onChange={setPeriod} />
 
         <div className="section-heading">
           <span>Catalogued memories</span>
-          <span>{memories.length} {memories.length === 1 ? "item" : "items"}</span>
+          <span>{visible.length} {visible.length === 1 ? "item" : "items"}</span>
         </div>
 
-        {memories.length === 0 ? (
+        {visible.length === 0 ? (
           <div className="empty-state">
             The archive is empty.<br />
             Your first item can be a photograph, a note, or a sentence.
           </div>
         ) : (
           <div className="memory-grid">
-            {memories.map((memory) => (
+            {visible.map((memory) => (
               <MemoryCard
                 key={memory.id}
                 memory={memory}
@@ -177,6 +217,9 @@ export default function App() {
               />
             ))}
           </div>
+        )}
+
+        </>
         )}
 
         <div className="archive-footer">

@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { wrapUntrustedContent } from "./utils/contentBoundary.js";
 import type { AnalysisResult } from "./types.js";
+import { SENTIMENT_LABELS, LIFE_THEMES, EVENT_TYPES, SIGNIFICANCE_LEVELS } from "./types.js";
 
 const AnalysisSchema = z.object({
   artifactDescription: z.string().min(1).max(1000),
@@ -9,6 +10,15 @@ const AnalysisSchema = z.object({
   entities: z.array(z.object({ name: z.string().min(1).max(200), type: z.string().min(1).max(80) })).max(20),
   inferredDate: z.string().nullable(),
   tags: z.array(z.string().min(1).max(40)).min(2).max(4),
+  sentiment: z.object({
+    valence: z.number().min(-1).max(1),
+    energy: z.number().min(0).max(1),
+    label: z.enum(SENTIMENT_LABELS),
+    confidence: z.number().min(0).max(1)
+  }),
+  lifeThemes: z.array(z.enum(LIFE_THEMES)).min(1).max(3),
+  eventType: z.enum(EVENT_TYPES),
+  significance: z.enum(SIGNIFICANCE_LEVELS),
   clarifyingQuestion: z.string().min(3).max(180).refine(
     (value) => value.trim().endsWith("?") && (value.match(/\?/g) ?? []).length === 1,
     "clarifyingQuestion must contain exactly one question"
@@ -69,9 +79,22 @@ const analysisResponseSchema = {
     },
     inferredDate: { type: "string", nullable: true },
     tags: { type: "array", items: { type: "string" } },
+    sentiment: {
+      type: "object",
+      properties: {
+        valence: { type: "number" },
+        energy: { type: "number" },
+        label: { type: "string", enum: [...SENTIMENT_LABELS] },
+        confidence: { type: "number" }
+      },
+      required: ["valence", "energy", "label", "confidence"]
+    },
+    lifeThemes: { type: "array", items: { type: "string", enum: [...LIFE_THEMES] } },
+    eventType: { type: "string", enum: [...EVENT_TYPES] },
+    significance: { type: "string", enum: [...SIGNIFICANCE_LEVELS] },
     clarifyingQuestion: { type: "string" }
   },
-  required: ["artifactDescription", "extractedText", "entities", "inferredDate", "tags", "clarifyingQuestion"]
+  required: ["artifactDescription", "extractedText", "entities", "inferredDate", "tags", "sentiment", "lifeThemes", "eventType", "significance", "clarifyingQuestion"]
 };
 
 export async function analyseText(text: string): Promise<AnalysisResult> {
@@ -89,7 +112,11 @@ export async function analyseText(text: string): Promise<AnalysisResult> {
           "Return exactly one short clarifying question that invites personal meaning: who the user was with, how they felt, or why the moment mattered. Never ask about technical details, logistics, definitions, or facts already visible in the artifact.",
           "Extract only what is supported by the artifact. Do not invent people, events, emotions, relationships, locations, or dates.",
           "If a date-like string is present but it is unclear that it refers to the memory/event date, inferredDate must be null.",
-          "Return 2 to 4 concise thematic tags."
+          "Return 2 to 4 concise thematic tags.",
+          "Assess sentiment as descriptive memory tone, never as a clinical, wellbeing, or mental-health measure. valence runs -1 (strongly negative) to +1 (strongly positive); energy runs 0 (subdued) to 1 (highly activated); confidence reflects how well the artifact supports the reading. A difficult memory may have high energy. A nostalgic memory may hold positive and negative elements at once — do not flatten it.",
+          "Assign 1 to 3 lifeThemes, only those strongly supported. Do not assign every plausible theme.",
+          "Assign exactly one eventType describing the primary nature of the memory.",
+          "Assign exactly one significance level. Reserve milestone for genuine turning points; most memories are routine or notable."
         ].join(" "),
         responseMimeType: "application/json",
         responseSchema: analysisResponseSchema
@@ -120,7 +147,11 @@ export async function analyseImage(buffer: Buffer, mimeType: string): Promise<An
           "Return exactly one short clarifying question that invites personal meaning: who the user was with, how they felt, or why the moment mattered. Never ask about technical details, logistics, definitions, or facts already visible in the artifact.",
           "Extract only what is supported by the image. Do not invent people, events, emotions, relationships, locations, or dates.",
           "If a date-like string is present but it is unclear that it refers to the memory/event date, inferredDate must be null.",
-          "Return 2 to 4 concise thematic tags."
+          "Return 2 to 4 concise thematic tags.",
+          "Assess sentiment as descriptive memory tone, never as a clinical, wellbeing, or mental-health measure. valence runs -1 (strongly negative) to +1 (strongly positive); energy runs 0 (subdued) to 1 (highly activated); confidence reflects how well the artifact supports the reading. A difficult memory may have high energy. A nostalgic memory may hold positive and negative elements at once — do not flatten it.",
+          "Assign 1 to 3 lifeThemes, only those strongly supported. Do not assign every plausible theme.",
+          "Assign exactly one eventType describing the primary nature of the memory.",
+          "Assign exactly one significance level. Reserve milestone for genuine turning points; most memories are routine or notable."
         ].join(" "),
         responseMimeType: "application/json",
         responseSchema: analysisResponseSchema

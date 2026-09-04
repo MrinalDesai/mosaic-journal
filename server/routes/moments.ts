@@ -11,6 +11,36 @@ import { serializeFirestore } from "../utils/serialize.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: Number(process.env.MAX_IMAGE_BYTES ?? 10 * 1024 * 1024), files: 1 } });
+/**
+ * Client-supplied coordinates are DATA, never authority. Validated for range
+ * only; they scope nothing and grant nothing.
+ */
+const LocationInputSchema = z.object({
+  lat: z.number().finite().min(-90).max(90),
+  lng: z.number().finite().min(-180).max(180),
+  placeName: z.string().max(120).optional().default(""),
+  locality: z.string().max(120).nullable().optional(),
+  country: z.string().max(120).nullable().optional(),
+  source: z.enum(["device", "manual"])
+}).nullable().optional();
+
+function parseLocation(body: unknown) {
+  const raw = (body && typeof body === "object") ? (body as Record<string, unknown>).location : null;
+  if (!raw) return null;
+  const parsed = LocationInputSchema.safeParse(
+    typeof raw === "string" ? JSON.parse(raw) : raw
+  );
+  if (!parsed.success || !parsed.data) return null;
+  return {
+    lat: parsed.data.lat,
+    lng: parsed.data.lng,
+    placeName: parsed.data.placeName,
+    locality: parsed.data.locality ?? null,
+    country: parsed.data.country ?? null,
+    source: parsed.data.source
+  };
+}
+
 const TextMomentSchema = z.object({ type: z.literal("text"), text: z.string().trim().min(1).max(4000) });
 const AnswerSchema = z.object({ answer: z.string().trim().min(1).max(600) });
 const IdSchema = z.string().uuid();
@@ -59,7 +89,7 @@ router.post("/moments", upload.single("artifact"), async (req: AuthenticatedRequ
 
     const { clarifyingQuestion, ...storedAnalysis } = analysis;
     const doc = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       type,
       status: "awaiting_clarification",
       createdAt: FieldValue.serverTimestamp(),
@@ -70,7 +100,13 @@ router.post("/moments", upload.single("artifact"), async (req: AuthenticatedRequ
       clarifyingAnswer: null,
       narrative: null,
       artifacts,
-      location: null
+      sentiment: analysis.sentiment,
+      lifeThemes: analysis.lifeThemes,
+      eventType: analysis.eventType,
+      significance: analysis.significance,
+      clusterId: null,
+      demoSeedVersion: null,
+      location: parseLocation(req.body)
     };
 
     await memoryCollection(uid).doc(memoryId).set(doc);
@@ -122,12 +158,35 @@ router.post("/moments/:memoryId/answer", async (req: AuthenticatedRequest, res) 
 router.get("/memories", async (req: AuthenticatedRequest, res) => {
   const uid = req.auth!.uid;
   try {
-    const snapshot = await memoryCollection(uid).orderBy("memoryDate", "desc").limit(100).get();
+    const snapshot = await memoryCollection(uid).orderBy("memoryDate", "desc").limit(500).get();
     const memories = snapshot.docs.map((doc) => serializeFirestore({ id: doc.id, ...doc.data() }));
     return res.json({ memories });
   } catch (error) {
     console.error("list memories failed", { uid, error: error instanceof Error ? error.message : "unknown" });
     return res.status(500).json({ error: "Could not load memories." });
+  }
+});
+
+/**
+ * Cluster metadata, written by the offline clustering batch job.
+ * Read-only here: clustering never runs in a request path.
+ */
+router.get("/clusters", async (req: AuthenticatedRequest, res) => {
+  const uid = req.auth!.uid;
+  try {
+    const snapshot = await getFirestore()
+      .collection("users").doc(uid).collection("clusters")
+      .orderBy("memoryCount", "desc")
+      .limit(50)
+      .get();
+    const clusters = snapshot.docs.map((doc) => ({
+      clusterId: Number(doc.id),
+      ...doc.data()
+    }));
+    return res.json({ clusters });
+  } catch (error) {
+    console.error("list clusters failed", { uid, error: String(error) });
+    return res.status(500).json({ error: "Could not load constellations." });
   }
 });
 

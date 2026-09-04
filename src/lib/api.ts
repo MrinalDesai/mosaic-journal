@@ -1,5 +1,5 @@
 import type { User } from "firebase/auth";
-import type { Memory } from "../types";
+import type { Memory, MemoryLocation, MemoryCluster } from "../types";
 
 async function authHeaders(user: User): Promise<Record<string, string>> {
   const token = await user.getIdToken();
@@ -15,22 +15,23 @@ async function parseError(res: Response): Promise<Error> {
   }
 }
 
-export async function createTextMoment(user: User, text: string) {
+export async function createTextMoment(user: User, text: string, location?: MemoryLocation | null) {
   const headers = await authHeaders(user);
   const res = await fetch("/api/moments", {
     method: "POST",
     headers: { ...headers, "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "text", text })
+    body: JSON.stringify({ type: "text", text, location: location ?? null })
   });
   if (!res.ok) throw await parseError(res);
   return res.json() as Promise<{ memoryId: string; analysis: Memory["analysis"]; question: string }>;
 }
 
-export async function createImageMoment(user: User, file: File) {
+export async function createImageMoment(user: User, file: File, location?: MemoryLocation | null) {
   const headers = await authHeaders(user);
   const form = new FormData();
   form.set("type", "image");
   form.set("artifact", file);
+  if (location) form.set("location", JSON.stringify(location));
   const res = await fetch("/api/moments", { method: "POST", headers, body: form });
   if (!res.ok) throw await parseError(res);
   return res.json() as Promise<{ memoryId: string; analysis: Memory["analysis"]; question: string }>;
@@ -62,4 +63,12 @@ export async function deleteMemory(user: User, memoryId: string): Promise<void> 
     headers
   });
   if (!res.ok) throw await parseError(res);
+}
+
+export async function getClusters(user: User): Promise<MemoryCluster[]> {
+  const headers = await authHeaders(user);
+  const res = await fetch("/api/clusters", { headers });
+  if (!res.ok) throw await parseError(res);
+  const body = (await res.json()) as { clusters: MemoryCluster[] };
+  return body.clusters;
 }

@@ -21,10 +21,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "https://apis.google.com", "https://accounts.google.com"],
+      scriptSrc: ["'self'", "https://apis.google.com", "https://accounts.google.com", "https://maps.googleapis.com"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "blob:", "data:"],
-      connectSrc: [
+      imgSrc: ["https://maps.googleapis.com", "https://maps.gstatic.com", "'self'", "blob:", "data:"],
+      connectSrc: ["https://maps.googleapis.com", 
         "'self'",
         "https://*.googleapis.com",
         "https://*.firebaseio.com",
@@ -54,7 +54,8 @@ app.get("/api/public-config", (_req, res) => {
     authDomain: process.env.FIREBASE_AUTH_DOMAIN,
     projectId: process.env.FIREBASE_PROJECT_ID,
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-    appId: process.env.FIREBASE_APP_ID
+    appId: process.env.FIREBASE_APP_ID,
+      mapsApiKey: process.env.MAPS_BROWSER_KEY ?? null
   });
 });
 

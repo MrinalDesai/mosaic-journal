@@ -9,3 +9,5 @@ dist-server/
 .DS_Store
 env.yaml
 storage.cors.json
+seed/node_modules/
+seed/package-lock.json

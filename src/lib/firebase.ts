@@ -8,18 +8,19 @@ interface PublicFirebaseConfig {
   projectId: string;
   storageBucket: string;
   appId: string;
+  mapsApiKey?: string | null;
 }
 
 let appPromise: Promise<FirebaseApp> | null = null;
+let configPromise: Promise<PublicFirebaseConfig> | null = null;
 
 async function getApp(): Promise<FirebaseApp> {
   if (!appPromise) {
-    appPromise = fetch("/api/public-config")
-      .then(async (res) => {
-        if (!res.ok) throw new Error("Firebase client configuration is unavailable.");
-        return (await res.json()) as PublicFirebaseConfig;
-      })
-      .then((config) => initializeApp(config));
+    configPromise = fetch("/api/public-config").then(async (res) => {
+      if (!res.ok) throw new Error("Firebase client configuration is unavailable.");
+      return (await res.json()) as PublicFirebaseConfig;
+    });
+    appPromise = configPromise.then(({ mapsApiKey, ...config }) => initializeApp(config));
   }
   return appPromise;
 }
@@ -33,3 +34,10 @@ export async function getStorageClient(): Promise<FirebaseStorage> {
 }
 
 export const googleProvider = new GoogleAuthProvider();
+
+/** Browser Maps key. Domain-restricted and public by design, like the Firebase config. */
+export async function getMapsApiKey(): Promise<string | null> {
+  if (!configPromise) await getApp();
+  const config = await configPromise!;
+  return config.mapsApiKey ?? null;
+}
