@@ -136,7 +136,7 @@ A Gemini API key is also stored in **Google Cloud Secret Manager** and bound to 
 Cloud Run service as a controlled fallback path. It is never hardcoded and never
 exposed to client code.
 
-For local development, where ADC is unavailable, the same fallback key is supplied
+For local development, where ADC is not configured, the same fallback key is supplied
 separately through a gitignored local environment file.
 
 This is a deliberate strengthening of the pattern, not a substitute for it.
