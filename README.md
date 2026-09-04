@@ -532,7 +532,7 @@ server/          Express API — auth, routes, Gemini, validation utilities
 src/             React app — views, components, client libraries
 src/views/       Places, Emotional Arc, Constellations
 seed/            Synthetic archive generator and clustering batch job
-docs/            AI Studio Custom Instructions, security architecture
+docs/            AI Studio Custom Instructions
 firestore.rules  Owner-bound, explicit default deny
 storage.rules    Mirrors the Firestore ownership model
 Dockerfile       Multi-stage build for Cloud Run
