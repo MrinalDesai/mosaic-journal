@@ -1,6 +1,6 @@
 # Mosaic
 
-**A multimodal personal memory archive. Drop anything in; Gemini turns it into a memory you can find again.**
+**A multimodal personal memory archive. Drop in a photo, a note, a receipt; Gemini turns it into a memory you can find again.**
 
 Live: **https://mosaic-626211758247.asia-south1.run.app**
 
@@ -127,12 +127,17 @@ classification, location      binaries only
 
 ### A note on Gemini and Secret Manager
 
-Gemini is invoked **through Vertex AI in production**, using the Cloud Run service
-account's Application Default Credentials. There is therefore no long-lived bearer key
-in the production request path — nothing to leak, rotate, or accidentally commit.
+Gemini is invoked **through Vertex AI in production**, using the Cloud Run runtime
+service account and Application Default Credentials. The primary production inference
+path therefore requires no long-lived Gemini bearer key — nothing to leak, rotate, or
+accidentally commit.
 
-A Gemini API key remains stored in **Secret Manager** and bound to the service as the
-local-development fallback. No key is hardcoded and none reaches client code.
+A Gemini API key is also stored in **Google Cloud Secret Manager** and bound to the
+Cloud Run service as a controlled fallback path. It is never hardcoded and never
+exposed to client code.
+
+For local development, where ADC is unavailable, the same fallback key is supplied
+separately through a gitignored local environment file.
 
 This is a deliberate strengthening of the pattern, not a substitute for it.
 
@@ -399,7 +404,7 @@ gcloud projects add-iam-policy-binding <PROJECT_ID> \
   --member="serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com" \
   --role="roles/aiplatform.user"
 
-# Secret Manager — local-development fallback path
+# Secret Manager — optional Gemini API-key fallback path
 gcloud secrets create GEMINI_API_KEY --replication-policy="automatic"
 echo -n "<KEY>" | gcloud secrets versions add GEMINI_API_KEY --data-file=-
 gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
