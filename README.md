@@ -488,7 +488,7 @@ cp .env.example .env      # fill in Firebase web config + GEMINI_API_KEY
 npm run dev
 ```
 
-Locally, ADC is unavailable, so leave `GOOGLE_GENAI_USE_VERTEXAI` unset and the client
+Locally, unless ADC is configured, leave `GOOGLE_GENAI_USE_VERTEXAI` unset and the client
 falls back to the API key path.
 
 ---
