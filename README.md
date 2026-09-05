@@ -2,7 +2,7 @@
 
 **A multimodal personal memory archive. Drop in a photo, a note, a receipt; Gemini turns it into a memory you can find again.**
 
-Live: **https://mosaic-626211758247.asia-south1.run.app**
+Live: **https://mosaic-580714829977.asia-south1.run.app**
 
 Built for the Google Cloud Gen AI Academy Ideathon — *Accelerate AI with Cloud Run*.
 
